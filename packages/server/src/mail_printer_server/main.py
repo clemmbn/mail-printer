@@ -16,6 +16,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from mail_printer_protocol.logs import setup_logging
+from mail_printer_server import db
 from mail_printer_server.config import load_settings
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,10 @@ def main() -> None:
     setup_logging()
     settings = load_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # Schema creation is idempotent, so this is safe to run on every startup.
+    connection = db.connect(settings.data_dir / "app.db")
+    db.init_db(connection)
+    connection.close()
     logger.info(
         "starting mail-printer-server on %s:%d (data dir: %s)",
         settings.host,
