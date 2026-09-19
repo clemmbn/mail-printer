@@ -1,0 +1,21 @@
+[project]
+name = "mail-printer-pi"
+version = "0.1.0"
+description = "mail-printer Raspberry Pi agent: receives print jobs over WebSocket and prints them via ESC/POS."
+requires-python = ">=3.11"
+dependencies = [
+    "websockets>=13",
+    "python-escpos[usb]>=3.1",
+    "pillow>=11",
+    "mail-printer-protocol",
+]
+
+[project.scripts]
+mail-printer-pi = "mail_printer_pi.main:main"
+
+[tool.uv.sources]
+mail-printer-protocol = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

@@ -1,0 +1,23 @@
+[project]
+name = "mail-printer-server"
+version = "0.1.0"
+description = "mail-printer web server: public form, admin console, ticket rendering, printer WebSocket."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "pillow>=11",
+    "httpx>=0.27",
+    "mail-printer-protocol",
+]
+
+[project.scripts]
+mail-printer-server = "mail_printer_server.main:main"
+
+[tool.uv.sources]
+mail-printer-protocol = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

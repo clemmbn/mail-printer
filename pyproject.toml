@@ -1,17 +1,46 @@
-[project]
-name = "mail-printer"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-authors = [
-    { name = "clemmbn", email = "clem.mbn@gmail.com" }
+# uv workspace root for mail-printer.
+#
+# This file holds no code: it only declares the workspace members and the
+# shared dev tooling. Each member is installed on exactly one machine:
+#   - packages/protocol -> both (stdlib only, shared WebSocket messages)
+#   - packages/server   -> Hetzner VPS
+#   - packages/pi       -> Raspberry Pi
+#
+# The dev group pulls in every member so `uv run pytest` at the root can test
+# the whole workspace; production installs use `uv sync --package <member>`,
+# which only installs that member and its own dependencies.
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+    "mail-printer-protocol",
+    "mail-printer-server",
+    "mail-printer-pi",
+    "pytest>=8",
+    "ruff>=0.6",
 ]
-requires-python = ">=3.11"
-dependencies = []
 
-[project.scripts]
-mail-printer = "mail_printer:main"
+[tool.uv.sources]
+mail-printer-protocol = { workspace = true }
+mail-printer-server = { workspace = true }
+mail-printer-pi = { workspace = true }
 
-[build-system]
-requires = ["uv_build>=0.12.13,<0.13.0"]
-build-backend = "uv_build"
+[tool.pytest.ini_options]
+testpaths = ["packages/protocol/tests", "packages/server/tests", "packages/pi/tests"]
+# importlib mode: several packages have a `tests/` dir, and the default
+# rootdir-based import mode would clash on identically named test modules.
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+# Workspace members live under packages/*/src, which ruff can't discover on
+# its own from the root, so declare them first-party explicitly.
+known-first-party = ["mail_printer_protocol", "mail_printer_server", "mail_printer_pi"]

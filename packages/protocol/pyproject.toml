@@ -1,0 +1,11 @@
+[project]
+name = "mail-printer-protocol"
+version = "0.1.0"
+description = "WebSocket message types shared by the mail-printer server and Pi agent (stdlib only)."
+requires-python = ">=3.11"
+# Must stay empty: this package is installed on both machines.
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
