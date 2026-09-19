@@ -229,9 +229,8 @@ import from it:
 - Lint/format with `ruff` (`uv run ruff check`, `uv run ruff format`).
 - Project tracking lives in Linear, in the **"Mail Printer"** project of team
   **CLE** ("Clemmbn personal work"). Check the issues before starting work and
-  update them when a task is done. Note: the project is only visible through
-  the claude.ai Linear connector; the standalone `linear` MCP server
-  doesn't list it.
+  update them when a task is done. The standalone `linear` MCP server is
+  connected to this workspace and can see the project directly.
 
 ## Open decisions
 
