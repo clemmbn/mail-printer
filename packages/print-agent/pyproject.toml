@@ -1,7 +1,7 @@
 [project]
-name = "mail-printer-pi"
+name = "mail-printer-print-agent"
 version = "0.1.0"
-description = "mail-printer Raspberry Pi agent: receives print jobs over WebSocket and prints them via ESC/POS."
+description = "Shared Raspberry Pi print-agent: accepts one WebSocket connection per app, receives print jobs and prints them via ESC/POS. See docs/decisions/0001-shared-print-agent.md."
 requires-python = ">=3.11"
 dependencies = [
     "websockets>=13",
@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mail-printer-pi = "mail_printer_pi.main:main"
+mail-printer-print-agent = "mail_printer_print_agent.main:main"
 
 [tool.uv.sources]
 mail-printer-protocol = { workspace = true }

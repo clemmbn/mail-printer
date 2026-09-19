@@ -20,31 +20,43 @@ Browser ──HTTPS──> Caddy ──> FastAPI server (Hetzner CX22)
                                 │  renders ticket PNG with Pillow
                                 ▲
                                 │ WebSocket (outbound from home, wss://…/ws/printer)
+                                │ Authorization: Bearer <PRINTER_TOKEN_MAILPRINTER>
                                 │
-                     Pi agent (Raspberry Pi Zero 2W at home) ──USB──> ESC/POS printer
+                       print-agent (Raspberry Pi Zero 2W at home) ──USB──> ESC/POS printer
 ```
+
+`print-agent` is shared: other Hetzner apps (task-printer, maybe more
+later) can hold their own outbound `/ws/printer` connection to the same
+Pi process, each with its own bearer token, so only one process ever
+owns the USB printer. See
+[docs/decisions/0001-shared-print-agent.md](docs/decisions/0001-shared-print-agent.md)
+for why. mail-printer only ever sees *its own* connection and queue —
+the agent is a dumb multiplexed relay, not shared state mail-printer's
+server needs to know about.
 
 - **Server (VPS)**: FastAPI app. Serves the public form, the admin console,
   the submit API, and the printer WebSocket endpoint. Stores everything in
   SQLite. **Renders the ticket PNG server-side**, so the admin preview is
   exactly what gets printed and the Pi stays thin.
-- **Pi agent (home)**: opens an *outbound* WebSocket to the server (no port
-  forwarding, no inbound exposure at home), authenticates with a shared
-  secret, receives print jobs, prints them, and acks/nacks each one.
-  Reconnects forever with exponential backoff.
-- **Queue semantics**: the DB is the queue. A message is `queued` until the
-  Pi acks it (`printed`) or reports an error (`failed`). On every Pi
-  (re)connect, the server flushes all `queued` messages oldest-first. The site
-  keeps accepting messages while the Pi is offline.
-- **Run uvicorn with a single worker**: the live Pi WebSocket connection is
-  held in process memory; multiple workers would split it.
+- **print-agent (home)**: opens an *outbound* WebSocket to the server (no
+  port forwarding, no inbound exposure at home) for mail-printer's
+  connection, authenticates with mail-printer's shared secret, receives
+  print jobs, prints them, and acks/nacks each one. Reconnects forever
+  with exponential backoff.
+- **Queue semantics**: the DB is the queue. A message is `queued` until
+  print-agent acks it (`printed`) or reports an error (`failed`). On every
+  print-agent (re)connect, the server flushes all `queued` messages
+  oldest-first. The site keeps accepting messages while print-agent is
+  offline.
+- **Run uvicorn with a single worker**: the live print-agent WebSocket
+  connection is held in process memory; multiple workers would split it.
 
 ## Project structure
 
 One git repo, **one uv workspace, three packages**. Each package lives on
 exactly one machine (except `protocol`, which both share). Never import
-server code from the Pi package or vice versa: the only shared code is
-`protocol`.
+server code from the print-agent package or vice versa: the only shared
+code is `protocol`.
 
 ```
 mail-printer/
@@ -76,16 +88,18 @@ mail-printer/
 │   │   │   └── static/         #   css/, js/, img/ (default avatar), vendor/motion.js
 │   │   └── tests/
 │   │
-│   └── pi/                     # 📦 mail-printer-pi        → RASPBERRY PI
+│   └── print-agent/             # 📦 mail-printer-print-agent → RASPBERRY PI
 │       ├── pyproject.toml      #   deps: websockets, python-escpos[usb], pillow, protocol
-│       ├── src/mail_printer_pi/
-│       │   ├── main.py         #   `mail-printer-pi` entrypoint: WS client loop, reconnect/backoff
+│       ├── src/mail_printer_print_agent/
+│       │   ├── main.py         #   `mail-printer-print-agent` entrypoint: accepts one WS
+│       │   │                   #     connection per app (per-app bearer token), serialises
+│       │   │                   #     jobs across apps FIFO, reconnect/backoff per connection
 │       │   └── printer.py      #   ESC/POS: lazy USB connect, print PNG, text fallback
 │       └── tests/
 │
 ├── deploy/
 │   ├── hetzner/                # Caddyfile, mail-printer-server.service, deploy.sh
-│   └── pi/                     # mail-printer-pi.service, sync.sh (rsync like task-printer)
+│   └── pi/                     # mail-printer-print-agent.service, sync.sh (rsync like task-printer)
 │
 └── data/                       # gitignored, runtime only (server): app.db, photos/, tickets/
 ```
@@ -94,16 +108,16 @@ mail-printer/
 
 | | Hetzner VPS | Raspberry Pi |
 |---|---|---|
-| Package | `mail-printer-server` | `mail-printer-pi` |
-| Install | `uv sync --package mail-printer-server` | `uv sync --package mail-printer-pi` |
-| Run | `uv run mail-printer-server` (behind Caddy, systemd) | `uv run mail-printer-pi` (systemd) |
+| Package | `mail-printer-server` | `mail-printer-print-agent` |
+| Install | `uv sync --package mail-printer-server` | `uv sync --package mail-printer-print-agent` |
+| Run | `uv run mail-printer-server` (behind Caddy, systemd) | `uv run mail-printer-print-agent` (systemd) |
 | Owns | web UI, admin, SQLite, rendering, rate limits, secrets for Turnstile/admin | the USB printer only |
 | Network | public HTTPS on 443 | outbound `wss://` only, **no open ports** |
-| Env | `.env` on the VPS | `.env` on the Pi (server URL, printer token, USB IDs) |
+| Env | `.env` on the VPS | `.env` on the Pi (server URL(s), one printer token per app, USB IDs) |
 
-Only the *server* renders tickets: the Pi receives a finished PNG and
-prints it. So all design and layout work happens in `packages/server`,
-and the Pi code should almost never change.
+Only the *server* renders tickets: print-agent receives a finished PNG
+and prints it. So all design and layout work happens in
+`packages/server`, and print-agent code should almost never change.
 
 The old placeholder `src/mail_printer/` from `uv init` gets removed when
 the workspace is scaffolded.
@@ -112,19 +126,28 @@ the workspace is scaffolded.
 
 JSON text frames, defined once in `mail_printer_protocol.messages` and used
 by both sides. Bump `PROTOCOL_VERSION` on any breaking change; the server
-rejects an agent with a mismatching version.
+rejects a print-agent connection with a mismatching version.
 
-- **Connect**: Pi → `wss://<domain>/ws/printer`, header
-  `Authorization: Bearer <PRINTER_TOKEN>`, first frame
-  `{"type": "hello", "protocol_version": N}`.
-- **Server → Pi** `{"type": "print", "job_id": <message id>, "png_b64": "...",
-  "fallback_text": "..."}`. `fallback_text` = timestamp + name + message
-  (never the contact field), used if image printing fails.
-- **Pi → Server** `{"type": "ack", "job_id": …}` or
+print-agent accepts one connection per app (mail-printer, task-printer,
+...), each authenticated with that app's own token. Job ids are scoped
+per connection, so mail-printer's server only ever sees its own jobs —
+see [docs/decisions/0001-shared-print-agent.md](docs/decisions/0001-shared-print-agent.md).
+
+- **Connect**: print-agent → `wss://<domain>/ws/printer` (mail-printer's
+  server), header `Authorization: Bearer <PRINTER_TOKEN_MAILPRINTER>`,
+  first frame `{"type": "hello", "protocol_version": N}`. Each app's
+  server exposes its own `/ws/printer`; print-agent holds one outbound
+  connection per app.
+- **Server → print-agent** `{"type": "print", "job_id": <message id>,
+  "png_b64": "...", "fallback_text": "..."}`. `fallback_text` = timestamp +
+  name + message (never the contact field), used if image printing fails.
+- **print-agent → Server** `{"type": "ack", "job_id": …}` or
   `{"type": "fail", "job_id": …, "error": "..."}`.
 - Keepalive via the WebSocket ping/pong built into both libraries.
-- One job in flight at a time: the server waits for ack/fail (with a timeout
-  that marks the job `failed`) before sending the next one.
+- One job in flight at a time **per connection**: print-agent waits for
+  ack/fail (with a timeout that marks the job `failed`) before sending the
+  next job on that same connection. Jobs from different apps are
+  interleaved in strict arrival (FIFO) order on the shared printer.
 
 ## Stack
 
@@ -150,7 +173,7 @@ import from it:
   (the font used in the Figma). Pure Pillow `ImageDraw`, 576px wide,
   `SCALE = 576 / 1080` to convert Figma px values, runnable directly to
   write a preview PNG without a printer.
-- **→ `packages/pi/.../printer.py`**: the ESC/POS printing from
+- **→ `packages/print-agent/.../printer.py`**: the ESC/POS printing from
   `src/task_printer/main.py`: lazy printer connection, env-configured USB
   vendor/product ID and profile (default Epson TM-T20II), plain-text
   fallback if image printing fails.
@@ -181,7 +204,7 @@ import from it:
   later renderer or design changes don't alter history.
 - **PDF export**: one message or a selection/all, one ticket per page, built
   from the stored PNGs with Pillow's PDF writer (no extra dependency)
-- Shows whether the Pi agent is currently connected
+- Shows whether print-agent is currently connected
 
 ## Safety requirements (non-negotiable)
 
@@ -207,8 +230,9 @@ import from it:
   and replace glyphs JetBrains Mono can't render (emoji, etc.) rather than
   printing tofu boxes. Everything rendered in HTML is auto-escaped by Jinja2.
 - **Printer WebSocket**: authenticated with a long random shared secret
-  (env var), compared in constant time; reject any other connection. Only
-  one agent connection at a time.
+  per app (env var), compared in constant time; reject any other
+  connection. Only one print-agent connection at a time per app (a new
+  one replaces the old one, logged).
 - **Admin**: CSRF protection on state-changing actions, login attempt
   throttling.
 - Secrets (Turnstile secret, admin password hash, session key, printer

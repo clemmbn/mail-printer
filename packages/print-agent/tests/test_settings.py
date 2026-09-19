@@ -1,8 +1,8 @@
-"""Tests for the Pi agent's env-based settings."""
+"""Tests for print-agent's env-based settings."""
 
 import pytest
 
-from mail_printer_pi.main import load_settings
+from mail_printer_print_agent.main import load_settings
 
 
 def test_settings_defaults(monkeypatch):

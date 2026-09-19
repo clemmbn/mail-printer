@@ -1,9 +1,12 @@
-"""`mail-printer-pi` entrypoint: the printer agent running at home.
+"""`mail-printer-print-agent` entrypoint: the shared printer agent running at home.
 
 Skeleton for now: loads and validates the configuration and logs it. The
-WebSocket client loop (outbound connection to the server, hello handshake,
+WebSocket client loop (one outbound connection per app, hello handshake,
 print/ack/fail, reconnect with exponential backoff) and ESC/POS printing are
-implemented in CLE-136.
+implemented in CLE-136, per the decision in
+docs/decisions/0001-shared-print-agent.md. This skeleton still assumes a
+single app connection (mail-printer); CLE-136 generalises it to one
+connection per app, each with its own token.
 
 Configuration comes from env vars (the Pi `.env`, loaded by systemd); every
 variable is listed in the root `.env.example`.
@@ -23,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AgentSettings:
-    """Pi agent settings.
+    """print-agent settings (single-app skeleton; see module docstring).
 
     Attributes:
         server_ws_url: wss:// URL of the server's printer endpoint.
@@ -70,7 +73,7 @@ def main() -> None:
     setup_logging()
     settings = load_settings()
     logger.info(
-        "mail-printer-pi starting (protocol v%d) -> %s, printer %04x:%04x profile %s",
+        "mail-printer-print-agent starting (protocol v%d) -> %s, printer %04x:%04x profile %s",
         PROTOCOL_VERSION,
         settings.server_ws_url,
         settings.usb_vendor_id,

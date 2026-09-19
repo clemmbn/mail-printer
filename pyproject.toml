@@ -2,9 +2,10 @@
 #
 # This file holds no code: it only declares the workspace members and the
 # shared dev tooling. Each member is installed on exactly one machine:
-#   - packages/protocol -> both (stdlib only, shared WebSocket messages)
-#   - packages/server   -> Hetzner VPS
-#   - packages/pi       -> Raspberry Pi
+#   - packages/protocol    -> both (stdlib only, shared WebSocket messages)
+#   - packages/server      -> Hetzner VPS
+#   - packages/print-agent -> Raspberry Pi (shared across apps; see
+#                             docs/decisions/0001-shared-print-agent.md)
 #
 # The dev group pulls in every member so `uv run pytest` at the root can test
 # the whole workspace; production installs use `uv sync --package <member>`,
@@ -17,7 +18,7 @@ members = ["packages/*"]
 dev = [
     "mail-printer-protocol",
     "mail-printer-server",
-    "mail-printer-pi",
+    "mail-printer-print-agent",
     "pytest>=8",
     "ruff>=0.6",
 ]
@@ -25,10 +26,10 @@ dev = [
 [tool.uv.sources]
 mail-printer-protocol = { workspace = true }
 mail-printer-server = { workspace = true }
-mail-printer-pi = { workspace = true }
+mail-printer-print-agent = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["packages/protocol/tests", "packages/server/tests", "packages/pi/tests"]
+testpaths = ["packages/protocol/tests", "packages/server/tests", "packages/print-agent/tests"]
 # importlib mode: several packages have a `tests/` dir, and the default
 # rootdir-based import mode would clash on identically named test modules.
 addopts = "--import-mode=importlib"
@@ -43,4 +44,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.ruff.lint.isort]
 # Workspace members live under packages/*/src, which ruff can't discover on
 # its own from the root, so declare them first-party explicitly.
-known-first-party = ["mail_printer_protocol", "mail_printer_server", "mail_printer_pi"]
+known-first-party = ["mail_printer_protocol", "mail_printer_server", "mail_printer_print_agent"]

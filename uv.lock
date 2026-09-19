@@ -4,14 +4,14 @@ requires-python = ">=3.11"
 
 [manifest]
 members = [
-    "mail-printer-pi",
+    "mail-printer-print-agent",
     "mail-printer-protocol",
     "mail-printer-server",
 ]
 
 [manifest.dependency-groups]
 dev = [
-    { name = "mail-printer-pi", editable = "packages/pi" },
+    { name = "mail-printer-print-agent", editable = "packages/print-agent" },
     { name = "mail-printer-protocol", editable = "packages/protocol" },
     { name = "mail-printer-server", editable = "packages/server" },
     { name = "pytest", specifier = ">=8" },
@@ -230,9 +230,9 @@ wheels = [
 ]
 
 [[package]]
-name = "mail-printer-pi"
+name = "mail-printer-print-agent"
 version = "0.1.0"
-source = { editable = "packages/pi" }
+source = { editable = "packages/print-agent" }
 dependencies = [
     { name = "mail-printer-protocol" },
     { name = "pillow" },
