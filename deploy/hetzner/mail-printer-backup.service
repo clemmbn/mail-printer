@@ -1,0 +1,59 @@
+# systemd unit running backup.sh once. Triggered by mail-printer-backup.timer.
+#
+# Type=oneshot: this is a script that runs to completion, not a daemon —
+# systemd waits for it to exit and records success/failure, so a failed
+# backup shows up in `systemctl list-units --failed` instead of being silent.
+#
+# Install
+#   sudo cp deploy/hetzner/mail-printer-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mail-printer-backup.timer
+#   sudo systemctl start mail-printer-backup.service   # test it right now
+#   journalctl -u mail-printer-backup -n 50
+
+[Unit]
+Description=mail-printer nightly data backup
+# Nothing else depends on it; if the app is down the data is still worth
+# backing up, so there is deliberately no Requires= on the server unit.
+
+[Service]
+Type=oneshot
+
+# Runs as the app user: it only needs to READ data/ (owned by mailprinter)
+# and write to the backup dir, so it never needs root.
+# PLACEHOLDER: user/group and paths must match the server unit.
+User=mailprinter
+Group=mailprinter
+
+ExecStart=/srv/mail-printer/deploy/hetzner/backup.sh
+Environment=APP_DIR=/srv/mail-printer
+Environment=BACKUP_DIR=/var/backups/mail-printer
+# Keep two weeks of nightly archives.
+Environment=KEEP_DAYS=14
+
+# A backup of a small SQLite DB + images should take seconds; 30 min is a
+# generous ceiling that still prevents a wedged run from blocking the timer.
+TimeoutStartSec=30min
+
+# ── Hardening ─────────────────────────────────────────────────────────────
+# Same posture as the server unit, minus the network (this touches no
+# sockets) — the tightest sensible sandbox for a script that reads the DB.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# ProtectSystem=strict is read-only everywhere, so grant exactly the one
+# directory the script writes. /srv/mail-printer stays readable (not listed
+# as RW) because the script only reads from it.
+ReadWritePaths=/var/backups/mail-printer
+
+[Install]
+# Not enabled directly — the timer is what you enable. This stanza only
+# exists so `systemctl start mail-printer-backup.service` works for testing.
+WantedBy=multi-user.target

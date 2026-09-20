@@ -1,0 +1,41 @@
+# udev rule granting the print-agent access to the USB thermal printer
+# without running as root.
+#
+# Why this is needed
+#   python-escpos talks to the printer through libusb, i.e. the raw device
+#   node under /dev/bus/usb/. By default those nodes are root-only, so the
+#   agent would get "Access denied (insufficient permissions)" on every job.
+#   This rule hands the device to the `lp` group instead; the agent's systemd
+#   unit lists `lp` as a supplementary group.
+#
+# Install
+#   sudo cp deploy/pi/99-mail-printer-usb.rules \
+#           /etc/udev/rules.d/99-mail-printer-usb.rules
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#   # then UNPLUG AND REPLUG the printer — udev rules only apply to devices
+#   # that are (re)added after the reload.
+#
+# ── PLACEHOLDER: the USB ids ──────────────────────────────────────────────
+# The ids below are the project defaults, matching PRINTER_USB_VENDOR_ID /
+# PRINTER_USB_PRODUCT_ID in .env.example (Epson TM-T20II as it appears on
+# this particular unit). Different printers — and even different revisions of
+# the same model — report different ids, so ALWAYS confirm with:
+#
+#   lsusb
+#   # e.g. "Bus 001 Device 004: ID 0483:5743 ..."  -> vendor 0483, product 5743
+#
+# If your ids differ, change them in BOTH places: here and in the Pi's .env.
+# Some TM-T20II units enumerate under Epson's own vendor id 04b8 (product
+# 0e15); in that case use those values instead.
+#
+# MODE="0660" + GROUP="lp" is preferred over the blunt MODE="0666" used in
+# task-printer's README: 0666 lets every local user (and anything they run)
+# write raw bytes to the printer. Group ownership is just as convenient here
+# and keeps that surface closed.
+
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5743", MODE="0660", GROUP="lp", TAG+="uaccess"
+
+# Second line, commented out: uncomment instead of the one above if `lsusb`
+# shows the printer with Epson's standard ids.
+# SUBSYSTEM=="usb", ATTRS{idVendor}=="04b8", ATTRS{idProduct}=="0e15", MODE="0660", GROUP="lp", TAG+="uaccess"

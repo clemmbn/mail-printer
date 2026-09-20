@@ -1,0 +1,117 @@
+# Caddy site config for mail-printer on the Hetzner CX22.
+#
+# Purpose
+#   Terminate HTTPS for the public site and reverse-proxy everything to the
+#   uvicorn process listening on localhost (see mail-printer-server.service).
+#   Caddy obtains and renews the certificate automatically via Let's Encrypt,
+#   which is the whole reason we use it here instead of raw nginx.
+#
+# Install
+#   Copy (or symlink) this file to /etc/caddy/Caddyfile, then:
+#     sudo caddy validate --config /etc/caddy/Caddyfile
+#     sudo systemctl reload caddy
+#
+# Non-obvious constraints
+#   - uvicorn runs with a SINGLE worker and holds the live print-agent
+#     WebSocket in process memory, so there is exactly one upstream. Never
+#     add a second upstream here: /ws/printer would land on a process that
+#     does not own the connection.
+#   - The app must be able to trust the client IP (rate limits + IP bans).
+#     Caddy is the only thing in front of uvicorn, so it is the only place
+#     allowed to write that header. See the header_up block below.
+#
+# PLACEHOLDER: replace mail.example.com with the real domain (both here and
+# in the DNS A record — see README.md).
+
+mail.example.com {
+	# ── Logging ───────────────────────────────────────────────────────────
+	# JSON access log to its own file so it can be rotated/shipped separately
+	# from the app log (journalctl -u mail-printer-server).
+	log {
+		output file /var/log/caddy/mail-printer.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+		format json
+	}
+
+	# ── Request body cap ──────────────────────────────────────────────────
+	# Photos are capped at 8 MB by the app (it verifies with Pillow and
+	# re-encodes). 10 MB here leaves room for the multipart envelope, the
+	# message (3000 chars) and the name field, while still cutting off
+	# oversized uploads at the edge — before they ever reach Python, so a
+	# flood of huge bodies cannot tie up the single uvicorn worker.
+	request_body {
+		max_size 10MB
+	}
+
+	# ── Security headers ──────────────────────────────────────────────────
+	header {
+		# HSTS: 1 year. Only safe because this domain is HTTPS-only.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Don't advertise the reverse proxy.
+		-Server
+	}
+
+	# ── Reverse proxy to uvicorn ──────────────────────────────────────────
+	# One upstream, localhost only (uvicorn binds 127.0.0.1, so it is not
+	# reachable from the internet except through Caddy).
+	#
+	# WebSockets: Caddy v2 proxies WebSocket upgrades transparently — there
+	# is no special directive to add. Connection/Upgrade headers are passed
+	# through as-is, which is what /ws/printer needs. The only thing that
+	# matters is the timeout: the print-agent connection is long-lived and
+	# idle most of the day, so flush_interval -1 disables response buffering
+	# (required for streaming/WS) and we do NOT set a read timeout that
+	# would kill an idle-but-healthy connection. Liveness is handled by the
+	# WebSocket ping/pong in both libraries, not by the proxy.
+	reverse_proxy 127.0.0.1:8000 {
+		flush_interval -1
+
+		# ── Client IP ───────────────────────────────────────────────────
+		# The app reads the client IP from X-Real-IP for rate limits and IP
+		# bans, so it MUST be set here from Caddy's own view of the
+		# connection ({remote_host}), overwriting anything the client sent.
+		# A client-supplied X-Forwarded-For / X-Real-IP is attacker-
+		# controlled and would let anyone bypass bans and rate limits.
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up Host {host}
+
+		# ── Cloudflare ──────────────────────────────────────────────────
+		# If/when the domain is proxied through Cloudflare (orange cloud),
+		# {remote_host} becomes a Cloudflare edge IP, not the visitor's, and
+		# the real client IP arrives in the CF-Connecting-IP header.
+		# In that case:
+		#   1. DO NOT simply trust CF-Connecting-IP: anyone hitting the
+		#      origin IP directly could forge it. First restrict inbound
+		#      80/443 to Cloudflare's published ranges (ufw, see README) so
+		#      only Cloudflare can reach this box.
+		#   2. Then let Caddy resolve the real IP by adding, at the top of
+		#      this file (global options block), the trusted_proxies module:
+		#
+		#        {
+		#          servers {
+		#            trusted_proxies cloudflare {
+		#              interval 12h
+		#              timeout 15s
+		#            }
+		#            client_ip_headers CF-Connecting-IP
+		#          }
+		#        }
+		#
+		#      (needs the caddy-cloudflare-ip module: `xcaddy build
+		#      --with github.com/WeidiDeng/caddy-cloudflare-ip`)
+		#   3. And switch the two lines above to use {client_ip} instead of
+		#      {remote_host}:
+		#        header_up X-Real-IP {client_ip}
+		#        header_up X-Forwarded-For {client_ip}
+		#
+		# Until Cloudflare proxying is actually enabled, {remote_host} is
+		# correct and CF-Connecting-IP must be ignored entirely.
+	}
+}

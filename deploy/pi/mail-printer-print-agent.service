@@ -1,0 +1,92 @@
+# systemd unit for the mail-printer print-agent on the Raspberry Pi Zero 2W.
+#
+# Purpose
+#   Keep `uv run mail-printer-print-agent` running forever: it opens an
+#   OUTBOUND WebSocket to the server, receives print jobs and drives the USB
+#   ESC/POS printer. Nothing listens on the Pi — no ports, no inbound access.
+#
+# Install
+#   sudo cp deploy/pi/mail-printer-print-agent.service \
+#           /etc/systemd/system/mail-printer-print-agent.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mail-printer-print-agent
+#   journalctl -u mail-printer-print-agent -f
+#
+# PLACEHOLDERS: the user (clemmbn) and the path (/home/clemmbn/Desktop/
+# Printer/mail-printer) must match deploy/pi/sync.sh's PI_HOST / PI_PATH.
+
+[Unit]
+Description=mail-printer print-agent (USB thermal printer relay)
+Documentation=https://github.com/clemmbn/mail-printer
+# The agent dials out over the network. It handles an unreachable server on
+# its own (reconnect with exponential backoff), so this is only an ordering
+# hint to avoid a guaranteed-failing first attempt at boot.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+
+# ── Identity ──────────────────────────────────────────────────────────────
+# Not root. Access to the USB printer comes from the udev rule
+# (99-mail-printer-usb.rules), which puts the device in the `lp` group —
+# that is why this user needs the lp supplementary group below.
+User=clemmbn
+Group=clemmbn
+SupplementaryGroups=lp
+
+WorkingDirectory=/home/clemmbn/Desktop/Printer/mail-printer
+
+# ── Configuration ─────────────────────────────────────────────────────────
+# SERVER_WS_URL_MAILPRINTER, PRINTER_TOKEN_MAILPRINTER and the USB ids live here. This file is
+# created once by hand on the Pi and is never overwritten by sync.sh.
+EnvironmentFile=/home/clemmbn/Desktop/Printer/mail-printer/.env
+
+Environment=HOME=/home/clemmbn
+# Unbuffered output so `journalctl -f` is live — important when you are
+# standing next to the printer trying to work out why nothing came out.
+Environment=PYTHONUNBUFFERED=1
+
+# ── Command ───────────────────────────────────────────────────────────────
+# --no-sync: never resolve/install at boot. A Pi Zero 2W would take minutes,
+# and a boot that depends on the network reaching PyPI is a boot that fails.
+# sync.sh is what installs dependencies.
+# PLACEHOLDER: `uv` path — /home/clemmbn/.local/bin/uv if installed per-user
+# by the official installer, /usr/local/bin/uv if installed system-wide.
+ExecStart=/home/clemmbn/.local/bin/uv run --no-sync mail-printer-print-agent
+
+# ── Restart policy ────────────────────────────────────────────────────────
+# always: a printer that silently stops accepting jobs is the worst failure
+# mode here. Crash, unplugged printer, lost Wi-Fi — always come back.
+Restart=always
+RestartSec=5
+# Deliberately NO StartLimitBurst cap (unlike the server): if the printer is
+# unplugged for a day the agent may restart many times, and it must still be
+# running when the printer comes back. A 5s delay is enough to avoid a hot loop.
+StartLimitIntervalSec=0
+
+# ── Hardening ─────────────────────────────────────────────────────────────
+# Lighter than the server's: this process needs raw USB access, so several
+# device-related protections must stay off.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=no
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# NOTE: PrivateDevices=yes is intentionally ABSENT — it would hide
+# /dev/bus/usb and the agent could no longer reach the printer at all.
+
+# ── Resource limits ───────────────────────────────────────────────────────
+# 512 MB of RAM total on a Zero 2W. Decoding a 576px PNG is cheap; capping
+# at 256 MB means a runaway agent gets killed and restarted instead of
+# taking the whole Pi down with it.
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+# Starts on boot, unattended — the Pi should just work after a power cut.
+WantedBy=multi-user.target

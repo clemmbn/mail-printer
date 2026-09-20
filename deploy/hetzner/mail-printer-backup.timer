@@ -1,0 +1,29 @@
+# Nightly trigger for mail-printer-backup.service.
+#
+# A systemd timer is preferred over cron here for two reasons:
+#   - Persistent=true catches up a run missed while the VPS was off/rebooting,
+#     which a plain cron line would silently skip.
+#   - Failures land in the journal alongside the app's own logs
+#     (`journalctl -u mail-printer-backup`), so there is one place to look.
+#
+# Equivalent cron line, if you prefer cron (as the app user, `crontab -e`):
+#   15 3 * * * APP_DIR=/srv/mail-printer BACKUP_DIR=/var/backups/mail-printer \
+#              KEEP_DAYS=14 /srv/mail-printer/deploy/hetzner/backup.sh \
+#              >> /var/log/mail-printer-backup.log 2>&1
+
+[Unit]
+Description=Run mail-printer data backup nightly
+
+[Timer]
+# 03:15 server time: quiet hours for a personal message printer, and offset
+# from :00 so it does not collide with every other cron job on the internet.
+OnCalendar=*-*-* 03:15:00
+# Spread the actual start over a 15-minute window. Pointless on a single box,
+# but harmless, and it avoids a thundering herd if this is ever templated.
+RandomizedDelaySec=15min
+# Run as soon as possible after boot if the scheduled time was missed while
+# the machine was down.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

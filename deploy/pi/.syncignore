@@ -1,0 +1,43 @@
+# rsync exclude list for deploy/pi/sync.sh (adapted from task-printer).
+#
+# Anything listed here is NOT sent to the Pi. Because sync.sh uses --delete,
+# these patterns also PROTECT the matching paths on the Pi from being wiped:
+# .env and .venv/ exist only there and must survive every sync.
+
+# The Pi builds its own venv (different architecture — a macOS venv is useless
+# there, and copying it would be slow and broken).
+.venv/
+
+# Python bytecode caches: regenerated locally, arch-specific.
+__pycache__/
+*.py[oc]
+build/
+dist/
+*.egg-info
+
+# Secrets: the Pi's .env holds PRINTER_TOKEN_MAILPRINTER and the USB ids. It is created
+# once by hand on the Pi and never overwritten from a laptop.
+.env
+
+# Local tooling state and history — no value on the Pi.
+.git/
+.github/
+.claude/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# Server-only code: the Pi never runs the web app, and skipping this keeps the
+# sync small (templates, static assets and the bundled fonts are the bulk of
+# the repo).
+#
+# NOTE: packages/server/pyproject.toml is deliberately NOT excluded. uv
+# discovers workspace members from the `packages/*` glob and reads each
+# member's pyproject.toml, so deleting the whole directory would break
+# `uv sync` on the Pi with "workspace member does not exist". Only the
+# member's source and tests are dropped.
+packages/server/src/
+packages/server/tests/
+
+# Runtime data belongs to the server, not the Pi.
+data/

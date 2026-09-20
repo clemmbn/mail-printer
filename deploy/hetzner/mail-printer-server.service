@@ -1,0 +1,113 @@
+# systemd unit for the mail-printer FastAPI server on the Hetzner CX22.
+#
+# Purpose
+#   Keep `uv run mail-printer-server` alive under a dedicated non-root user,
+#   behind Caddy, with secrets loaded from a gitignored .env file.
+#
+# Install
+#   sudo cp deploy/hetzner/mail-printer-server.service \
+#           /etc/systemd/system/mail-printer-server.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mail-printer-server
+#   journalctl -u mail-printer-server -f
+#
+# PLACEHOLDERS to replace: the user/group (mailprinter) and the two paths
+# (/srv/mail-printer) if you deploy somewhere else. They must match
+# deploy.sh's REMOTE_USER / REMOTE_PATH.
+
+[Unit]
+Description=mail-printer server (FastAPI + uvicorn)
+Documentation=https://github.com/clemmbn/mail-printer
+# Only start once the network is actually configured: uvicorn binds a socket
+# at startup and would fail fast on a half-up network.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+
+# ── Identity ──────────────────────────────────────────────────────────────
+# Never root: this process parses untrusted input (form posts, uploaded
+# images) and holds the admin session key.
+User=mailprinter
+Group=mailprinter
+
+WorkingDirectory=/srv/mail-printer
+
+# ── Configuration ─────────────────────────────────────────────────────────
+# All secrets (Turnstile, admin hash, session key, printer token) come from
+# this file, which is gitignored and chmod 600 on the VPS. systemd reads it
+# as root before dropping privileges, so it does not need to be readable by
+# the service user — but keeping it owned by mailprinter:mailprinter 600 is
+# simplest since deploy.sh never touches it.
+EnvironmentFile=/srv/mail-printer/.env
+
+# uv writes its cache/venv relative to $HOME; without this systemd gives the
+# service an empty HOME and uv falls back to odd locations.
+Environment=HOME=/srv/mail-printer
+# Unbuffered stdout/stderr so `journalctl -f` shows log lines immediately
+# instead of when the pipe buffer fills.
+Environment=PYTHONUNBUFFERED=1
+
+# ── Command ───────────────────────────────────────────────────────────────
+# `uv run` resolves the project venv itself; --no-sync makes startup fast and
+# deterministic (deploy.sh is what runs `uv sync`, not the service).
+#
+# IMPORTANT: a SINGLE uvicorn worker. The live print-agent WebSocket
+# connection is held in process memory; with >1 worker, a print job handled
+# by worker B could not reach the connection owned by worker A. The entrypoint
+# is expected to start uvicorn with workers=1 — do not add a --workers flag
+# here and do not put one in .env.
+ExecStart=/usr/local/bin/uv run --no-sync mail-printer-server
+
+# ── Restart policy ────────────────────────────────────────────────────────
+# Always: the site should come back after a crash, an OOM kill, or a reboot.
+# The delay avoids a tight crash-loop hammering the CPU if .env is broken.
+Restart=always
+RestartSec=5
+# If it crashes 5 times in 60s something is genuinely wrong (bad config);
+# let it stop so the failure is visible rather than silently flapping.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# ── Hardening ─────────────────────────────────────────────────────────────
+# This service is internet-facing via Caddy, so lock down what a compromised
+# process could reach. Each directive below is safe for this workload; if you
+# add a feature that needs more access, relax the specific one and say why.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# Only IP sockets: the app talks HTTP/WS over TCP and nothing else.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# ProtectSystem=strict makes the whole filesystem read-only, so the paths the
+# app genuinely writes must be listed back explicitly:
+#   - the project dir holds data/ (SQLite, photos/, tickets/) and uv's venv
+ReadWritePaths=/srv/mail-printer
+
+# ── Resource limits ───────────────────────────────────────────────────────
+# A CX22 has 4 GB RAM. Pillow decoding a hostile image is the main way this
+# process could balloon; cap it so the OOM killer hits this unit and not the
+# whole box (systemd then restarts it).
+MemoryMax=1G
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target
