@@ -16,7 +16,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from mail_printer_protocol.logs import setup_logging
-from mail_printer_server import db
+from mail_printer_server import db, printer_ws
 from mail_printer_server.config import load_settings
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,10 @@ def create_app() -> FastAPI:
         FastAPI: the app with all routes registered.
     """
     app = FastAPI(title="mail-printer", docs_url=None, redoc_url=None, openapi_url=None)
+
+    # /ws/printer: the print-agent link. Its connection state is held in a
+    # process-wide hub, hence the single-worker constraint documented above.
+    app.include_router(printer_ws.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
