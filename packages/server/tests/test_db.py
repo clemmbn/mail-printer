@@ -26,7 +26,6 @@ def insert_sample_message(conn: sqlite3.Connection, **overrides) -> int:
     fields = {
         "name": "Alice",
         "message": "hello there",
-        "contact": "alice@example.com",
         "ip": "1.2.3.4",
     }
     fields.update(overrides)
@@ -66,7 +65,6 @@ def test_insert_message_returns_id_and_defaults_to_queued(conn: sqlite3.Connecti
     assert message.status == "queued"
     assert message.name == "Alice"
     assert message.message == "hello there"
-    assert message.contact == "alice@example.com"
     assert message.ip == "1.2.3.4"
     assert message.created_at
     assert message.photo_path is None

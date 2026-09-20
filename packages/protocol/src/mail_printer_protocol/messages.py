@@ -48,8 +48,8 @@ class Print:
     Attributes:
         job_id: the message id in the server DB; echoed back in ack/fail.
         png_b64: the rendered ticket PNG, base64-encoded.
-        fallback_text: timestamp + name + message (never the contact field),
-            printed as plain text if image printing fails.
+        fallback_text: timestamp + name + message, printed as plain text if
+            image printing fails.
     """
 
     TYPE: ClassVar[str] = "print"

@@ -2,8 +2,8 @@
 
 A small public website where anyone can send me a message that gets printed
 on my thermal receipt printer at home. Visitors fill in a form (message,
-optional name, optional photo, optional contact handle); the message is
-rendered into a ticket image and printed.
+optional name, optional photo); the message is rendered into a ticket image
+and printed.
 
 Ticket design (source of truth for the printed layout):
 https://www.figma.com/design/Q11PCEFotPek15w3u9TSzF/Thermal-Printer?node-id=13-2
@@ -140,7 +140,7 @@ see [docs/decisions/0001-shared-print-agent.md](docs/decisions/0001-shared-print
   connection per app.
 - **Server → print-agent** `{"type": "print", "job_id": <message id>,
   "png_b64": "...", "fallback_text": "..."}`. `fallback_text` = timestamp +
-  name + message (never the contact field), used if image printing fails.
+  name + message, used if image printing fails.
 - **print-agent → Server** `{"type": "ack", "job_id": …}` or
   `{"type": "fail", "job_id": …, "error": "..."}`.
 - Keepalive via the WebSocket ping/pong built into both libraries.
@@ -187,15 +187,13 @@ import from it:
 - `photo` (optional, from gallery or camera via
   `<input type="file" accept="image/*" capture>`): printed in the avatar
   circle; a default avatar icon is used when absent
-- `contact` (optional, ≤100 chars, Instagram/TikTok/email): **stored for
-  the admin console only, never printed on the ticket**
 - Cloudflare Turnstile widget, verified server-side before anything else
 
 ### Admin console (`/admin`)
 - Single password login (hash in env) → signed, HttpOnly, Secure,
   SameSite=Strict session cookie
 - **History browser**: paginated list of all messages (newest first) with
-  ticket preview, name, contact, photo, timestamp, IP, status
+  ticket preview, name, photo, timestamp, IP, status
   (`queued` / `printed` / `failed`)
 - Actions: **delete** (removes the row and its stored images),
   **reprint as-is**, **ban IP**, **export to PDF**
@@ -209,7 +207,7 @@ import from it:
 ## Safety requirements (non-negotiable)
 
 - **Length**: 3000-char max on the message, enforced server-side (the client
-  counter is only UX). Also cap name/contact lengths and total request body size.
+  counter is only UX). Also cap the name length and total request body size.
 - **Rate limits** (per IP, stored in SQLite so they survive restarts):
   - burst: max **5 messages per 10 minutes**
   - daily: max **50 messages per day**

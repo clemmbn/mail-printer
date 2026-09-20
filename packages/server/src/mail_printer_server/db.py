@@ -32,7 +32,6 @@ class Message:
         created_at: ISO-8601 UTC timestamp string, set at insert time.
         name: sender name ("Anonymous" is applied at render time, not here).
         message: the message body.
-        contact: optional contact handle, admin-only (never printed).
         photo_path: on-disk path to the sanitised photo, or None.
         ticket_path: on-disk path to the rendered ticket PNG, or None.
         ip: submitter IP, for rate limiting / bans.
@@ -45,7 +44,6 @@ class Message:
     created_at: str
     name: str
     message: str
-    contact: str | None
     photo_path: str | None
     ticket_path: str | None
     ip: str
@@ -91,7 +89,6 @@ def init_db(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             name TEXT NOT NULL,
             message TEXT NOT NULL,
-            contact TEXT,
             photo_path TEXT,
             ticket_path TEXT,
             ip TEXT NOT NULL,
@@ -127,7 +124,6 @@ def _row_to_message(row: sqlite3.Row) -> Message:
         created_at=row["created_at"],
         name=row["name"],
         message=row["message"],
-        contact=row["contact"],
         photo_path=row["photo_path"],
         ticket_path=row["ticket_path"],
         ip=row["ip"],
@@ -145,7 +141,6 @@ def insert_message(
     *,
     name: str,
     message: str,
-    contact: str | None,
     ip: str,
 ) -> int:
     """Insert a new message row with status "queued".
@@ -158,10 +153,10 @@ def insert_message(
     """
     cursor = conn.execute(
         """
-        INSERT INTO messages (created_at, name, message, contact, ip, status)
-        VALUES (?, ?, ?, ?, ?, 'queued')
+        INSERT INTO messages (created_at, name, message, ip, status)
+        VALUES (?, ?, ?, ?, 'queued')
         """,
-        (_now(), name, message, contact, ip),
+        (_now(), name, message, ip),
     )
     conn.commit()
     return cursor.lastrowid
