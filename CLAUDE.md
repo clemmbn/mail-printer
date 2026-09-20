@@ -7,10 +7,14 @@ and printed.
 
 Ticket design (source of truth for the printed layout):
 https://www.figma.com/design/Q11PCEFotPek15w3u9TSzF/Thermal-Printer?node-id=13-2
-Layout: "Unread message" title between two rules → timestamp (grey,
-`DD/MM/YYYY HH:MM`) → sender name → round avatar bottom-left + rounded
-speech bubble containing the message → decorative "Reply ?" pill + send
-icon (purely visual, not functional). Designed at 1080px wide, printed at 576px.
+Layout (node 13:2): "New message" title centred on one line with a rule
+either side of it → centred grey timestamp (`DD/MM/YYYY HH:MM`) → sender
+name, indented → round avatar bottom-left + rounded speech bubble
+containing the message → decorative "Reply ?" pill + send button (purely
+visual, not functional). Icon artwork (Phosphor `paper-plane-tilt` for
+the send button, `user-circle` for the avatar placeholder) lives in
+`assets/`; the 96px PNGs are bundled with the server because Pillow
+cannot read SVG. Designed at 1080px wide, printed at 576px.
 
 ## Architecture
 
@@ -186,7 +190,7 @@ import from it:
 - `name` (optional, ≤40 chars): empty prints as **"Anonymous"**
 - `photo` (optional, from gallery or camera via
   `<input type="file" accept="image/*" capture>`): printed in the avatar
-  circle; a default avatar icon is used when absent
+  circle; Phosphor's `user-circle` icon is printed when absent
 - Cloudflare Turnstile widget, verified server-side before anything else
 
 ### Admin console (`/admin`)
@@ -256,8 +260,9 @@ import from it:
 
 ## Open decisions
 
-- Exact default avatar icon and how the photo is dithered for thermal print
-  (Floyd–Steinberg vs threshold): decide after a test print.
+- How the photo is dithered for thermal print (Floyd–Steinberg vs
+  threshold): decide after a test print. The fallback avatar is settled:
+  Phosphor's `user-circle`.
 
 ## Data retention
 
